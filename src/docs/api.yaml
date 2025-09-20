@@ -1,0 +1,1335 @@
+openapi: 3.0.3
+info:
+  title: Transport API
+  description: |
+    API pour système de transport avec gestion des tickets, paiements Wave, 
+    validation QR codes et suivi GPS temps réel.
+    
+    ## Fonctionnalités principales
+    - Authentification JWT avec vérification email
+    - Gestion tickets avec QR codes chiffrés
+    - Paiements via API Wave
+    - Suivi GPS temps réel
+    - WebSockets pour notifications
+    - Système de récupération mot de passe
+    
+  version: 1.0.0
+  contact:
+    name: Transport API       #name de l'app
+    email: api@transportcom   #email de l'app
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Serveur de développement
+  - url: https://api.transport.com    #domaine name de l'app
+    description: Serveur de production
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==========================================
+  # AUTHENTIFICATION
+  # ==========================================
+  /api/auth/register/requestVerification:
+    post:
+      tags:
+        - Authentification
+      summary: Demander vérification email pour inscription
+      description: Envoie un code de vérification à 6 chiffres par email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nom
+                - email
+                - telephone
+                - mot_de_passe
+              properties:
+                nom:
+                  type: string
+                  minLength: 2
+                  example: "John Doe"
+                email:
+                  type: string
+                  format: email
+                  example: "john@example.com"
+                telephone:
+                  type: string
+                  example: "0123456789"
+                mot_de_passe:
+                  type: string
+                  minLength: 8
+                  example: "motdepasse123"
+      responses:
+        '200':
+          description: Code de vérification envoyé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/register/verify:
+    post:
+      tags:
+        - Authentification
+      summary: Vérifier code et créer compte
+      description: Valide le code reçu par email et crée le compte utilisateur
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - code
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                  pattern: "^[0-9]{6}$"
+                  example: "123456"
+      responses:
+        '201':
+          description: Compte créé avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentification
+      summary: Connexion utilisateur
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - mot_de_passe
+              properties:
+                email:
+                  type: string
+                  format: email
+                mot_de_passe:
+                  type: string
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/password/forgot:
+    post:
+      tags:
+        - Authentification
+      summary: Demander réinitialisation mot de passe
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Lien de réinitialisation envoyé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+
+  /api/auth/password/reset:
+    post:
+      tags:
+        - Authentification
+      summary: Réinitialiser mot de passe
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - mot_de_passe
+                - confirm_mot_de_passe
+              properties:
+                token:
+                  type: string
+                  description: Token reçu par email
+                mot_de_passe:
+                  type: string
+                  minLength: 8
+                confirm_mot_de_passe:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Mot de passe réinitialisé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+
+  # ==========================================
+  # PROFIL UTILISATEUR
+  # ==========================================
+  /api/profil/me:
+    get:
+      tags:
+        - Profil
+      summary: Consulter son profil
+      description: Retourne les informations du profil de l'utilisateur connecté (basé sur le JWT).
+      responses:
+        '200':
+          description: Profil utilisateur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags:
+        - Profil
+      summary: Mettre à jour son profil
+      description: Permet à l'utilisateur connecté de modifier ses informations personnelles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                telephone:
+                  type: string
+                mot_de_passe:
+                  type: string
+                  description: "Optionnel — si l'utilisateur veut changer son mot de passe"
+                  minLength: 8
+      responses:
+        '200':
+          description: Profil mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Utilisateur'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags:
+        - Profil
+      summary: Supprimer son compte
+      description: Supprime définitivement le compte utilisateur connecté.
+      responses:
+        '200':
+          description: Compte supprimé avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================
+  # TICKETS
+  # ==========================================
+  /api/tickets:
+  get:
+    tags:
+      - Tickets
+    summary: Récupère les tickets de l'utilisateur connecté
+    description: Retourne la liste des tickets appartenant à l'utilisateur authentifié.
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Liste des tickets de l'utilisateur
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Tickets récupérés avec succès
+                tickets:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Ticket'
+      '401':
+        description: Utilisateur non authentifié
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Utilisateur non authentifié
+
+  /api/tickets/create:
+    post:
+      tags:
+        - Tickets
+      summary: Créer un ticket
+      description: Crée un ticket avec QR code chiffré
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - trajet_id
+              properties:
+                trajet_id:
+                  type: integer
+                  example: 1
+      responses:
+        '201':
+          description: Ticket créé avec QR code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  ticket:
+                    $ref: '#/components/schemas/Ticket'
+                  qr:
+                    $ref: '#/components/schemas/QRCode'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/tickets/validate:
+    post:
+      tags:
+        - Tickets
+      summary: Valider un ticket
+      description: Valide un ticket via son token QR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: Token QR chiffré
+      responses:
+        '200':
+          description: Ticket validé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  message:
+                    type: string
+                  ticket:
+                    $ref: '#/components/schemas/Ticket'
+
+  /api/tickets/{ticketId}:
+    get:
+      tags:
+        - Tickets
+      summary: Image QR code (PNG)
+      description: Retourne l'image PNG du QR code
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Image PNG du QR code
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+
+  # ==========================================
+  # PAIEMENTS
+  # ==========================================
+  /api/paiements:
+    post:
+      tags:
+        - Paiements
+      summary: Créer un paiement
+      description: Traite un paiement via Wave API et valide le ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ticket_id
+                - montant
+                - mobile
+                - token
+              properties:
+                ticket_id:
+                  type: integer
+                  example: 123
+                montant:
+                  type: number
+                  minimum: 200
+                  maximum: 1000000
+                  example: 1500
+                mobile:
+                  type: string
+                  pattern: "^[+]?[0-9]{8,15}$"
+                  example: "+221701234567"
+                token:
+                  type: string
+                  description: Token QR du ticket
+                name:
+                  type: string
+                  example: "John Doe"
+                currency:
+                  type: string
+                  enum: [XOF, EUR, USD]
+                  default: XOF
+      responses:
+        '201':
+          description: Paiement effectué et ticket validé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaiementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          description: Erreur service Wave
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags:
+        - Paiements
+      summary: Liste des paiements
+      description: Retourne tous les paiements (admin)
+      responses:
+        '200':
+          description: Liste des paiements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Paiement'
+
+  /api/paiements/user/{userId}:
+    get:
+      tags:
+        - Paiements
+      summary: Paiements d'un utilisateur
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Paiements de l'utilisateur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Paiement'
+
+  /api/paiements/user/{userId}/last:
+    get:
+      tags:
+        - Paiements
+      summary: Dernier paiements d'un utilisateur
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Dernier paiements de l'utilisateur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Paiement'
+
+  /api/paiements/webhook/wave:
+    post:
+      tags:
+        - Paiements
+      summary: Webhook Wave
+      description: Endpoint pour les notifications Wave
+      security: []
+      parameters:
+        - name: Wave-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook traité
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "ok"
+
+  # ==========================================
+  # TRAJETS, LIGNES & VEHICULES
+  # ==========================================
+  /api/trajets:
+    get:
+      tags:
+        - Trajets
+      summary: Liste des trajets
+      responses:
+        '200':
+          description: Liste des trajets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Trajet'
+
+    post:
+      tags:
+        - Trajets
+      summary: Créer un trajet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ligne_id
+                - vehicule_id
+                - heure_depart
+                - heure_arrivee
+              properties:
+                ligne_id:
+                  type: integer
+                vehicule_id:
+                  type: integer
+                heure_depart:
+                  type: string
+                  format: date-time
+                heure_arrivee:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Trajet créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+    
+  /api/trajets/{id}:
+    get:
+      tags:
+        - Trajets
+      summary: Détails d'un Trajet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Détails du trajet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+    put:
+      tags:
+        - Trajets
+      summary: Mise à jour trajet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ligne_id:
+                  type: integer
+                vehicule_id:
+                  type: integer
+                heure_depart:
+                  type: string
+                  format: date-time
+                heure_arrivee:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Trajet mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+
+    delete:
+      tags:
+        - Trajets
+      summary: Supprimer un trajet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Trajet supprimé
+
+  /api/lignes:
+    get:
+      tags:
+        - Lignes
+      summary: Liste des lignes
+      responses:
+        '200':
+          description: Liste des lignes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ligne'
+
+    post:
+      tags:
+        - Lignes²
+      summary: Créer une Ligne
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nom
+                - arrets
+              properties:
+                nom :
+                  type: string
+                arrets :
+                  type: jsonb/array/list
+                  example : ["Sopim", "Fondation FHB", "Mofaitai", "Grand Marché", "Quartier 22", "INP-HB Nord"]
+      responses:
+        '201':
+          description: Ligne créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+
+  api/lignes/{id}:
+    get:
+      tags:
+        - Ligne
+      summary: Détails d'une Ligne
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Détails de la ligne
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+    put:
+      tags:
+        - Lignes
+      summary: Mise à jour ligne
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                arrets:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Ligne mise à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ligne'
+
+    delete:
+      tags:
+        - Lignes
+      summary: Supprimer une ligne
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Ligne supprimée
+
+  /api/vehicules:
+    get:
+      tags:
+        - Véhicules
+      summary: Liste des véhicules
+      responses:
+        '200':
+          description: Liste des véhicules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicule'
+
+    post:
+      tags:
+        - Véhicules
+      summary: Créer un véhicule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - immatriculation
+                - type
+                - statut_gps
+              properties:
+                immatriculation:
+                  type: string
+                  example: "ABCD12EF"
+                type:
+                  type: string
+                  example: "Bus"
+                statut_gps:
+                  type: boolean
+      responses:
+        '201':
+          description: Véhicule créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+  /api/vehicules/{id}:
+    get:
+      tags:
+        - Véhicules
+      summary: Détails d'un véhicule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Détails du véhicule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+    put:
+      tags:
+        - Véhicules
+      summary: Mettre à jour un véhicule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                immatriculation:
+                  type: string
+                type:
+                  type: string
+                statut_gps:
+                  type: boolean
+      responses:
+        '200':
+          description: Véhicule mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+    delete:
+      tags:
+        - Véhicules
+      summary: Supprimer un véhicule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Véhicule supprimé
+
+ # ==========================================
+  # DASHBOARD
+  # ==========================================
+  /api/dashboard/overview:
+    get:
+      tags:
+        - Dashboard
+      summary: Vue d'ensemble
+      description: Retourne les KPIs (utilisateurs, tickets, revenus…)
+      responses:
+        '200':
+          description: Statistiques globales
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Total_utilisateur:
+                    type: integer
+                  utilisateurs_journalier:
+                    type: integer
+                  tickets_journalier:
+                    type: integer
+                  tickets_mensuel:
+                    type: integer
+                  revenues_journalier:
+                    type: number
+                  vehicule_en_ligne:
+                    type: integer
+
+  /api/dashboard/ticketsParTrajets:
+    get:
+      tags:
+        - Dashboard
+      summary: Tickets par trajet
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            example: 10
+      responses:
+        '200':
+          description: Nombre de tickets par trajet
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ligne_id:
+                      type: integer
+                    nombre_tickets:
+                      type: integer
+
+  /api/dashboard/paymentSummary:
+    get:
+      tags:
+        - Dashboard
+      summary: Résumé des paiements
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Résumé des paiements par jour
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    jour:
+                      type: string
+                      format: date
+                    total:
+                      type: number
+                    nombre:
+                      type: integer
+
+  /api/dashboard/recentActivities:
+    get:
+      tags:
+        - Dashboard
+      summary: Activités récentes
+      description: Timeline des tickets créés et paiements
+      responses:
+        '200':
+          description: Liste des dernières activités
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [ticket, paiement]
+                    id:
+                      type: integer
+                    createdAt:
+                      type: string
+                      format: date-time
+
+  # ==========================================
+  # POSITIONS GPS
+  # ==========================================
+  /api/positions:
+    post:
+      tags:
+        - Positions GPS
+      summary: Envoyer position GPS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vehicule_id
+                - latitude
+                - longitude
+              properties:
+                vehicule_id:
+                  type: integer
+                latitude:
+                  type: number
+                  format: float
+                  example: 14.6928
+                longitude:
+                  type: number
+                  format: float
+                  example: -17.4467
+      responses:
+        '201':
+          description: Position enregistrée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionGPS'
+  
+  /api/positions/last/{vehiculeId}:
+    get:
+      tags:
+        - Positions GPS
+      summary: Dernière position d'un véhicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Dernière position connue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionGPS'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/positions/route/{vehiculeId}:
+    get:
+      tags:
+        - Positions GPS
+      summary: Trace/route d'un véhicule
+      description: Retourne des points ordonnés du plus ancien au plus récent. pour tracer un vehicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filtrer à partir de cette date/heure (ISO 8601)
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filtrer jusqu'à cette date/heure (ISO 8601)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1000
+          description: Nombre maximum de points retournés
+      responses:
+        '200':
+          description: Points de la route
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PositionGPS'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+# ==========================================
+# COMPONENTS
+# ==========================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Authentification
+    AuthResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        Utilisateur:
+          $ref: '#/components/schemas/Utilisateur'
+        token:
+          type: string
+          description: JWT token
+
+    Utilisateur:
+      type: object
+      properties:
+        id:
+          type: integer
+        nom:
+          type: string
+        email:
+          type: string
+          format: email
+        telephone:
+          type: string
+        date_inscription:
+          type: string
+          format: date-time
+
+    # Tickets
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: integer
+        code_qr:
+          type: string
+        date_creation:
+          type: string
+          format: date-time
+        date_expiration:
+          type: string
+          format: date-time
+        statut_validation:
+          type: boolean
+        statut_expiration:
+          type: boolean
+        utilisateur_id:
+          type: integer
+        trajet_id:
+          type: integer
+
+    QRCode:     # donnée redis
+      type: object
+      properties:
+        qr_id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: Token chiffré
+        qr_png_base64:
+          type: string
+          description: Image QR en base64
+
+    # Paiements
+    Paiement:
+      type: object
+      properties:
+        id:
+          type: integer
+        montant:
+          type: number
+          format: decimal
+        date:
+          type: string
+          format: date-time
+        methode:
+          type: string
+          example: "WAVE"
+        transaction_id:
+          type: string
+        ticket_id:
+          type: integer
+        utilisateur_id:
+          type: integer
+
+    PaiementResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        paiement:
+          $ref: '#/components/schemas/Paiement'
+        payout:
+          type: object
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+            client_reference:
+              type: string
+        validation:
+          type: object
+          properties:
+            valid:
+              type: boolean
+            validated_at:
+              type: string
+              format: date-time
+
+    # Transport
+    Trajet:
+      type: object
+      properties:
+        id:
+          type: integer
+        ligne_id:
+          type: integer
+        vehicule_id:
+          type: integer
+        heure_depart:
+          type: string
+          format: date-time
+        heure_arrivee:
+          type: string
+          format: date-time
+
+    Ligne:
+      type: object
+      properties:
+        id:
+          type: integer
+        nom:
+          type: string
+        arrets:
+          type: array
+          items:
+            type: object
+
+    Vehicule:
+      type: object
+      properties:
+        id:
+          type: integer
+        immatriculation:
+          type: string
+        type:
+          type: string
+        statut_gps:
+          type: boolean
+
+    PositionGPS:
+      type: object
+      properties:
+        id:
+          type: integer
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        timestamp:
+          type: string
+          format: date-time
+        vehicule_id:
+          type: integer
+
+    # Erreurs
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        detail:
+          type: string
+
+    SuccessMessage:
+      type: object
+      properties:
+        message:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Requête invalide
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Non autorisé
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Ressource non trouvée
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

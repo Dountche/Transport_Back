@@ -1,0 +1,30 @@
+'use strict';
+
+module.exports = {
+  up: async (queryInterface, Sequelize) => {
+    // Modifier les colonnes heure_depart et heure_arrivee pour être de type TIME
+    await queryInterface.changeColumn('Trajets', 'heure_depart', {
+      type: Sequelize.TIME,
+      allowNull: false
+    });
+
+    await queryInterface.changeColumn('Trajets', 'heure_arrivee', {
+      type: Sequelize.TIME,
+      allowNull: false
+    });
+
+  },
+
+  down: async (queryInterface, Sequelize) => {
+    // Rollback vers DATE
+    await queryInterface.changeColumn('Trajets', 'heure_depart', {
+      type: Sequelize.DATE,
+      allowNull: false
+    });
+
+    await queryInterface.changeColumn('Trajets', 'heure_arrivee', {
+      type: Sequelize.DATE,
+      allowNull: false
+    });
+  }
+};
