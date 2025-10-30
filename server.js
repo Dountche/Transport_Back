@@ -1,81 +1,182 @@
-const http = require("http");
-const dotenv = require("dotenv");
-const { Server } = require("socket.io");
-const { registerPositionWebsockets } = require('./src/websockets/positionWebsocket');
-const { registerTicketsWebsockets } = require('./src/websockets/ticketWebsocket');
-const { registerPaiementsWebsockets } = require('./src/websockets/paiementWebsocket');
-const { registerDashboardWebsockets } = require('./src/websockets/dashboardWebsockets');
-const { startTicketsCleanup } = require("./src/jobs/ticketCleanup");
-const { ValidatedRedistConnection, closeRedisConnection } = require('./src/config/redis');
-const express = require("express");
-const paiementsController = require("./src/controllers/paiements"); 
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const http = require('http');
+const socketIo = require('socket.io');
+const { sequelize } = require('./models');
+const redisClient = require('./config/redisClient');
 
-dotenv.config();
-
-const app = require("./src/routes/app");
-const port = process.env.PORT || 3000;
-
-// === Création serveur HTTP + WebSocket ===
+const app = express();
 const server = http.createServer(app);
 
-const io = new Server(server, {
+// CORS configuré pour production
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Autoriser les requêtes sans origin (apps mobiles)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:19006',
+      'http://localhost:8081',
+      process.env.FRONTEND_URL, // URL du frontend si web
+      'exp://', // Expo Go
+    ];
+    
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      callback(null, true);
+    } else {
+      callback(null, true); // En production, autoriser tout pour mobile
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+};
+
+app.use(cors(corsOptions));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// Socket.IO avec CORS
+const io = socketIo(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: '*', // Apps mobiles = pas d'origin fixe
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
 });
 
-// Middleware global
+// Middleware pour rawBody (webhook Wave)
+app.use('/api/paiements/webhook/wave', express.raw({ type: 'application/json' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Injecter io dans req
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// === Webhook Wave ===
-app.post("/api/paiements/webhook/wave", express.raw({ type: "application/json" }), (req, res) => {
-  req.rawBody = req.body.toString("utf8");
-  paiementsController.waveWebhookHandler(req, res);
-});
+// Health check
+app.use('/api/health', require('./routes/health'));
 
-// === Jobs ===
-startTicketsCleanup(io);
+// Routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/tickets', require('./routes/tickets'));
+app.use('/api/paiements', require('./routes/paiements'));
+app.use('/api/trajets', require('./routes/trajets'));
+app.use('/api/lignes', require('./routes/lignes'));
+app.use('/api/vehicules', require('./routes/vehicules'));
+app.use('/api/positions', require('./routes/positions'));
+app.use('/api/reservations', require('./routes/reservations'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/chauffeur-vehicules', require('./routes/chauffeur-vehicules'));
+app.use('/api/dashboard', require('./routes/dashboard'));
 
-// === Websockets ===
-registerPositionWebsockets(io);
-registerTicketsWebsockets(io);
-registerPaiementsWebsockets(io);
-registerDashboardWebsockets(io);
-
-io.on("connection", (socket) => {
-  console.log("Client connecté :", socket.id);
-
-  socket.on("disconnect", () => {
-    console.log("Client déconnecté :", socket.id);
+// Route racine
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Transport API v1.0',
+    status: 'running',
+    documentation: '/api-docs',
+    health: '/api/health'
   });
 });
 
-// Connexion Redis + lancement serveur
-(async () => {
+// Gestion d'erreurs globale
+app.use((err, req, res, next) => {
+  console.error('Erreur serveur:', err);
+  res.status(500).json({
+    message: 'Erreur interne du serveur',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// WebSocket authentication
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  // Vérifier JWT
+  const jwt = require('jsonwebtoken');
   try {
-    console.log("📡 Initialisation Redis...");
-    await ValidatedRedistConnection();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    socket.userRole = decoded.role;
+    next();
+  } catch (error) {
+    next(new Error('Invalid token'));
+  }
+});
 
-    server.listen(port, () => {
-      console.log(`Serveur lancé sur http://localhost:${port}`);
-    });
+io.on('connection', (socket) => {
+  console.log(`WebSocket connecté: User ${socket.userId}`);
+  
+  // Rejoindre la room de l'utilisateur
+  socket.join(`user_${socket.userId}`);
+  
+  // Rejoindre rooms selon le rôle
+  if (socket.userRole === 'chauffeur') {
+    socket.join('chauffeurs');
+  } else if (socket.userRole === 'admin') {
+    socket.join('admins');
+  } else if (socket.userRole === 'client') {
+    socket.join('clients');
+  }
+  
+  socket.on('disconnect', () => {
+    console.log(`WebSocket déconnecté: User ${socket.userId}`);
+  });
+});
 
-    process.on("SIGINT", async () => {
-      console.log("Arrêt du serveur...");
-      try {
-        await closeRedisConnection();
-        process.exit(0);
-      } catch (err) {
-        console.error("Erreur lors de la fermeture de Redis:", err);
-        process.exit(1);
-      }
+const PORT = process.env.PORT || 3000;
+
+// Démarrage du serveur
+async function startServer() {
+  try {
+    // Test connexion DB
+    await sequelize.authenticate();
+    console.log('✅ PostgreSQL connecté');
+    
+    // Test connexion Redis
+    if (redisClient.status === 'ready') {
+      console.log('✅ Redis connecté');
+    } else {
+      console.warn('⚠️ Redis non connecté (mode dégradé)');
+    }
+    
+    // Synchroniser les modèles (ATTENTION: en production, utiliser migrations)
+    if (process.env.NODE_ENV !== 'production') {
+      await sequelize.sync({ alter: false });
+      console.log('✅ Modèles synchronisés');
+    }
+    
+    // Démarrer le serveur
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Serveur démarré sur le port ${PORT}`);
+      console.log(`📍 URL: http://localhost:${PORT}`);
+      console.log(`🔧 Environnement: ${process.env.NODE_ENV}`);
     });
-  } catch (err) {
-    console.error("Erreur au démarrage du serveur :", err);
+    
+  } catch (error) {
+    console.error('❌ Erreur démarrage serveur:', error);
     process.exit(1);
   }
-})();
+}
+
+// Gestion arrêt gracieux
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM reçu, arrêt gracieux...');
+  server.close(async () => {
+    await sequelize.close();
+    await redisClient.quit();
+    process.exit(0);
+  });
+});
+
+startServer();
+
+module.exports = { app, server, io };
