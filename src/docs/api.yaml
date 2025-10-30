@@ -2,16 +2,19 @@ openapi: 3.0.3
 info:
   title: Transport API
   description: |
-    API pour système de transport avec gestion des tickets, paiements Wave, 
-    validation QR codes et suivi GPS temps réel.
+    API complète pour système de transport urbain avec gestion des tickets, paiements Wave, 
+    validation QR codes, suivi GPS temps réel, réservations et notifications.
     
     ## Fonctionnalités principales
-    - Authentification JWT avec vérification email
-    - Gestion tickets avec QR codes chiffrés
-    - Paiements via API Wave
-    - Suivi GPS temps réel
-    - WebSockets pour notifications
-    - Système de récupération mot de passe
+    - **Authentification JWT** avec vérification email et rôles (client, chauffeur, admin)
+    - **Gestion tickets** avec QR codes chiffrés (AES-256-GCM)
+    - **Paiements Wave** avec webhook sécurisé + paiements espèces
+    - **Suivi GPS temps réel** avec historique des trajets
+    - **Réservations** avec statuts et notifications
+    - **WebSockets** pour événements temps réel
+    - **Système de notifications** complet
+    - **Dashboard** pour chauffeurs et admins
+    - **Récupération mot de passe** sécurisée
     
   version: 1.0.0
   contact:
@@ -30,6 +33,67 @@ servers:
 security:
   - BearerAuth: []
 
+# ==========================================
+# WEBSOCKETS
+# ==========================================
+x-websockets:
+  description: |
+    ## WebSockets pour événements temps réel
+    
+    ### Connexion
+    ```javascript
+    const socket = io('ws://localhost:3000', {
+      auth: { token: 'your-jwt-token' }
+    });
+    ```
+    
+    ### Événements disponibles
+    
+    #### Tickets
+    - `ticketCreated` - Nouveau ticket créé
+    - `ticketValidated` - Ticket validé par chauffeur
+    
+    #### Paiements
+    - `paymentSuccess` - Paiement effectué avec succès
+    - `paymentFailed` - Échec du paiement
+    
+    #### Réservations
+    - `reservationCreated` - Nouvelle réservation
+    - `reservationAccepted` - Réservation acceptée
+    - `reservationCancelled` - Réservation annulée
+    
+    #### GPS & Véhicules
+    - `vehiclePosition` - Position GPS mise à jour
+    - `vehicleApproaching` - Véhicule en approche
+    - `destinationReached` - Destination atteinte
+    
+    #### Dashboard
+    - `dashboard:update` - Mise à jour des statistiques
+    - `dashboard:stats` - Nouvelles statistiques
+    
+    #### Notifications
+    - `notification` - Nouvelle notification
+    - `notification:read` - Notification marquée comme lue
+    
+    ### Exemple d'utilisation
+    ```javascript
+    // Écouter les événements
+    socket.on('ticketCreated', (data) => {
+      console.log('Nouveau ticket:', data);
+    });
+    
+    socket.on('paymentSuccess', (data) => {
+      console.log('Paiement réussi:', data);
+    });
+    
+    socket.on('vehiclePosition', (data) => {
+      console.log('Position véhicule:', data);
+    });
+    
+    // Rejoindre une room spécifique
+    socket.emit('join', 'chauffeur_room');
+    socket.emit('join', 'admin_room');
+    ```
 paths:
   # ==========================================
   # AUTHENTIFICATION
@@ -56,14 +120,14 @@ paths:
                 nom:
                   type: string
                   minLength: 2
-                  example: "John Doe"
+                  example: "Diallo Franck"
                 email:
                   type: string
                   format: email
                   example: "john@example.com"
                 telephone:
                   type: string
-                  example: "0123456789"
+                  example: "0"
                 mot_de_passe:
                   type: string
                   minLength: 8
@@ -276,38 +340,38 @@ paths:
   # TICKETS
   # ==========================================
   /api/tickets:
-  get:
-    tags:
-      - Tickets
-    summary: Récupère les tickets de l'utilisateur connecté
-    description: Retourne la liste des tickets appartenant à l'utilisateur authentifié.
-    security:
-      - bearerAuth: []
-    responses:
-      '200':
-        description: Liste des tickets de l'utilisateur
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: Tickets récupérés avec succès
-                tickets:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/Ticket'
-      '401':
-        description: Utilisateur non authentifié
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: Utilisateur non authentifié
+    get:
+      tags:
+        - Tickets
+      summary: Récupère les tickets de l'utilisateur connecté
+      description: Retourne la liste des tickets appartenant à l'utilisateur authentifié.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Liste des tickets de l'utilisateur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Tickets récupérés avec succès
+                  tickets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Ticket'
+        '401':
+          description: Utilisateur non authentifié
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Utilisateur non authentifié
 
   /api/tickets/create:
     post:
@@ -430,13 +494,13 @@ paths:
                 mobile:
                   type: string
                   pattern: "^[+]?[0-9]{8,15}$"
-                  example: "+221701234567"
+                  example: "+2250102030405"
                 token:
                   type: string
                   description: Token QR du ticket
                 name:
                   type: string
-                  example: "John Doe"
+                  example: "Diallo Franck"
                 currency:
                   type: string
                   enum: [XOF, EUR, USD]
@@ -694,7 +758,7 @@ paths:
 
     post:
       tags:
-        - Lignes²
+        - Lignes
       summary: Créer une Ligne
       requestBody:
         required: true
@@ -706,11 +770,13 @@ paths:
                 - nom
                 - arrets
               properties:
-                nom :
+                nom:
                   type: string
-                arrets :
-                  type: jsonb/array/list
-                  example : ["Sopim", "Fondation FHB", "Mofaitai", "Grand Marché", "Quartier 22", "INP-HB Nord"]
+                arrets:
+                  type: array
+                  items:
+                    type: string
+                  example: ["Sopim", "Fondation FHB", "Mofaitai", "Grand Marché", "Quartier 22", "INP-HB Nord"]
       responses:
         '201':
           description: Ligne créé
@@ -719,7 +785,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Trajet'
 
-  api/lignes/{id}:
+  /api/lignes/{id}:
     get:
       tags:
         - Ligne
@@ -893,7 +959,7 @@ paths:
         '204':
           description: Véhicule supprimé
 
- # ==========================================
+  # ==========================================
   # DASHBOARD
   # ==========================================
   /api/dashboard/overview:
@@ -1007,6 +1073,361 @@ paths:
                     createdAt:
                       type: string
                       format: date-time
+
+  # ==========================================
+  # RÉSERVATIONS
+  # ==========================================
+  /api/reservations:
+    post:
+      tags:
+        - Réservations
+      summary: Créer une réservation
+      description: Permet à un client de créer une réservation pour un trajet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - trajet_id
+                - vehicule_id
+                - arret_depart
+                - arret_arrivee
+              properties:
+                trajet_id:
+                  type: integer
+                  example: 1
+                vehicule_id:
+                  type: integer
+                  example: 1
+                arret_depart:
+                  type: string
+                  example: "Sopim"
+                arret_arrivee:
+                  type: string
+                  example: "INP-HB Nord"
+      responses:
+        '201':
+          description: Réservation créée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/reservations/mes-reservations:
+    get:
+      tags:
+        - Réservations
+      summary: Mes réservations
+      description: Récupère les réservations de l'utilisateur connecté
+      responses:
+        '200':
+          description: Liste des réservations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  reservations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reservation'
+
+  /api/reservations/chauffeur:
+    get:
+      tags:
+        - Réservations
+      summary: Réservations chauffeur
+      description: Récupère les réservations pour un chauffeur
+      responses:
+        '200':
+          description: Liste des réservations du chauffeur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  reservations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reservation'
+
+  /api/reservations/{id}/status:
+    put:
+      tags:
+        - Réservations
+      summary: Mettre à jour le statut d'une réservation
+      description: Permet de changer le statut d'une réservation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statut
+              properties:
+                statut:
+                  type: string
+                  enum: [en_attente, acceptee, en_cours, terminee, annulee]
+      responses:
+        '200':
+          description: Statut mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+
+  # ==========================================
+  # NOTIFICATIONS
+  # ==========================================
+  /api/notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Mes notifications
+      description: Récupère les notifications de l'utilisateur connecté
+      responses:
+        '200':
+          description: Liste des notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+
+  /api/notifications/read:
+    post:
+      tags:
+        - Notifications
+      summary: Marquer comme lu
+      description: Marque une notification comme lue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - notification_id
+              properties:
+                notification_id:
+                  type: integer
+      responses:
+        '200':
+          description: Notification marquée comme lue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+
+  /api/notifications/all:
+    delete:
+      tags:
+        - Notifications
+      summary: Supprimer toutes les notifications
+      description: Supprime toutes les notifications de l'utilisateur
+      responses:
+        '200':
+          description: Toutes les notifications supprimées
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+
+  /api/notifications/count:
+    get:
+      tags:
+        - Notifications
+      summary: Compteur de notifications non lues
+      description: Retourne le nombre de notifications non lues
+      responses:
+        '200':
+          description: Compteur de notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 5
+
+  # ==========================================
+  # CHAUFFEUR-VÉHICULES
+  # ==========================================
+  /api/chauffeur-vehicules/mes-vehicules:
+    get:
+      tags:
+        - Chauffeur-Véhicules
+      summary: Mes véhicules assignés
+      description: Récupère les véhicules assignés au chauffeur connecté
+      responses:
+        '200':
+          description: Liste des véhicules assignés
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  vehicules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Vehicule'
+
+  /api/chauffeur-vehicules/{vehiculeId}/gps:
+    put:
+      tags:
+        - Chauffeur-Véhicules
+      summary: Mettre à jour le statut GPS
+      description: Active/désactive le GPS d'un véhicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statut_gps
+              properties:
+                statut_gps:
+                  type: boolean
+      responses:
+        '200':
+          description: Statut GPS mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicule'
+
+  /api/chauffeur-vehicules/{vehiculeId}/trajets:
+    get:
+      tags:
+        - Chauffeur-Véhicules
+      summary: Trajets du jour
+      description: Récupère les trajets du jour pour un véhicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Liste des trajets du jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  trajets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Trajet'
+
+  /api/chauffeur-vehicules/{vehiculeId}/position:
+    post:
+      tags:
+        - Chauffeur-Véhicules
+      summary: Envoyer position GPS
+      description: Envoie la position GPS actuelle du véhicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - latitude
+                - longitude
+              properties:
+                latitude:
+                  type: number
+                  format: float
+                  example: 14.6928
+                longitude:
+                  type: number
+                  format: float
+                  example: -17.4467
+      responses:
+        '201':
+          description: Position enregistrée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionGPS'
+
+  /api/chauffeur-vehicules/{vehiculeId}/historique-gps:
+    get:
+      tags:
+        - Chauffeur-Véhicules
+      summary: Historique GPS
+      description: Récupère l'historique GPS d'un véhicule
+      parameters:
+        - name: vehiculeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Historique GPS
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  positions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PositionGPS'
 
   # ==========================================
   # POSITIONS GPS
@@ -1296,6 +1717,72 @@ components:
           format: date-time
         vehicule_id:
           type: integer
+
+    # Réservations
+    Reservation:
+      type: object
+      properties:
+        id:
+          type: integer
+        utilisateur_id:
+          type: integer
+        trajet_id:
+          type: integer
+        vehicule_id:
+          type: integer
+        arret_depart:
+          type: string
+        arret_arrivee:
+          type: string
+        statut:
+          type: string
+          enum: [en_attente, acceptee, en_cours, terminee, annulee]
+        ticket_id:
+          type: integer
+        date_reservation:
+          type: string
+          format: date-time
+        date_prise_en_charge:
+          type: string
+          format: date-time
+
+    # Notifications
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+        utilisateur_id:
+          type: integer
+        type:
+          type: string
+          enum: [ticket_created, ticket_validated, payment_success, reservation_accepted, vehicle_approaching, destination_reached]
+        titre:
+          type: string
+        message:
+          type: string
+        lu:
+          type: boolean
+        date_creation:
+          type: string
+          format: date-time
+
+    # Chauffeur-Véhicule
+    ChauffeurVehicule:
+      type: object
+      properties:
+        chauffeur_id:
+          type: integer
+        vehicule_id:
+          type: integer
+        actif:
+          type: boolean
+        date_assignation:
+          type: string
+          format: date-time
+        date_desassignation:
+          type: string
+          format: date-time
 
     # Erreurs
     Error:

@@ -20,10 +20,23 @@ module.exports = {
         onDelete: 'SET NULL',
         onUpdate: 'CASCADE'
       },
-      heure_depart: { type: Sequelize.DATE, allowNull: false },
-      heure_arrivee: { type: Sequelize.DATE, allowNull: false },
-      createdAt: { type: Sequelize.DATE, defaultValue: Sequelize.fn('now') },
-      updatedAt: { type: Sequelize.DATE, defaultValue: Sequelize.fn('now') }
+      heure_depart: { 
+        type: Sequelize.TIME, 
+        allowNull: false 
+      },
+      heure_arrivee: { 
+        type: Sequelize.TIME, 
+        allowNull: false 
+      },
+      createdAt: { 
+        type: Sequelize.DATE, 
+        defaultValue: 
+        Sequelize.fn('now') 
+      },
+      updatedAt: { 
+        type: Sequelize.DATE, 
+        defaultValue: Sequelize.fn('now') 
+      }
     });
 
     await queryInterface.addIndex('Trajets', ['ligne_id']);

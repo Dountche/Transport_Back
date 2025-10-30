@@ -120,7 +120,7 @@ Vehicule.hasMany(ChauffeurVehicule, {
 });
 ChauffeurVehicule.belongsTo(Vehicule, { 
     foreignKey: "vehicule_id",
-    as: "vehicule" 
+    as: "Vehicule" 
 });
 
 /*

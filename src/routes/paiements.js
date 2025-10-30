@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {createPaiement, listPaiements, listUserPaiements, lastPaymentForUser, createPaiementEspeces, waveWebhookHandler } = require('../controllers/paiements');
+const {createPaiement, listPaiements, listUserPaiements, lastPaymentForUser, createPaiementEspeces, confirmerPaiementEspeces, waveWebhookHandler } = require('../controllers/paiements');
 const { clientMiddleware, adminMiddleware, chauffeurMiddleware, authMiddleware } = require('../middlewares/auth');
 
 // Middleware raw body pour le webhook
@@ -10,12 +10,13 @@ router.use('/webhook/wave', express.raw({ type: 'application/json' }));
 router.post('/', clientMiddleware, createPaiement);
 router.get('/user/:userId', authMiddleware, listUserPaiements);
 router.get('/user/:userId/last', authMiddleware, lastPaymentForUser);
+router.post('/especes', authMiddleware, createPaiementEspeces);
 
 // Routes admin
 router.get('/', adminMiddleware, listPaiements);
 
 //routes chauffeur
-router.post('/especes', chauffeurMiddleware, createPaiementEspeces);
+router.post('/confrim/:ticket_id', authMiddleware, confirmerPaiementEspeces);
 
 // Webhook Wave (public)
 router.post('/webhook/wave', (req, res) => {

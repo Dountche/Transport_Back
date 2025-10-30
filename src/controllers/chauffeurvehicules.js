@@ -1,5 +1,4 @@
 const { Vehicule, ChauffeurVehicule, Utilisateur, Role, Trajet, Ligne, PositionGPS } = require('../models');
-const { Op } = require('sequelize');
 
 // Récupérer les véhicules assignés au chauffeur
 async function getMesVehicules(req, res) {
@@ -16,6 +15,7 @@ async function getMesVehicules(req, res) {
         });
 
         if (!chauffeur || chauffeur.role?.nom !== 'chauffeur') {
+            console.log(chauffeur);
             return res.status(403).json({ 
                 message: 'Seuls les chauffeurs peuvent accéder à leurs véhicules' 
             });
@@ -30,20 +30,20 @@ async function getMesVehicules(req, res) {
             include: [
                 { 
                     model: Vehicule, 
-                    as: 'vehicule',
+                    as: 'Vehicule',
                     include: [
                         {
                             model: Trajet,
                             as: 'Trajets',
                             include: [
-                                { model: Ligne, as: 'ligne' }
+                                { model: Ligne, as: 'Ligne' }
                             ],
                             limit: 5, // Les 5 prochains trajets
                             order: [['heure_depart', 'ASC']]
                         },
                         {
                             model: PositionGPS,
-                            as: 'PositionGPS',
+                            as: 'PositionGPs',
                             limit: 1,
                             order: [['timestamp', 'DESC']]
                         }
@@ -61,7 +61,7 @@ async function getMesVehicules(req, res) {
 
         // Enrichir les données avec des statistiques
         const vehiculesAvecStats = await Promise.all(assignations.map(async (assignation) => {
-            const vehicule = assignation.vehicule;
+            const vehicule = assignation.Vehicule;
             
             // Statistiques du véhicule
             const stats = {
@@ -110,48 +110,52 @@ async function getMesVehicules(req, res) {
     }
 }
 
-// Mettre à jour le statut GPS d'un véhicule
+// Activer / désactiver le GPS d’un véhicule
 async function updateStatutGPS(req, res) {
     try {
         const { vehiculeId } = req.params;
-        const { statut_gps } = req.body;
         const chauffeurId = req.Utilisateur?.id;
 
+        // Vérification chauffeur
         if (!chauffeurId) {
             return res.status(401).json({ message: 'Chauffeur non authentifié' });
         }
 
-        if (typeof statut_gps !== 'boolean') {
-            return res.status(400).json({ message: 'statut_gps doit être true ou false' });
-        }
-
-        // Vérifier que le chauffeur a bien ce véhicule assigné
+        // Vérifier si le véhicule est bien assigné à ce chauffeur
         const assignation = await ChauffeurVehicule.findOne({
             where: {
                 chauffeur_id: chauffeurId,
                 vehicule_id: vehiculeId,
                 actif: true
             },
-            include: [{ model: Vehicule, as: 'vehicule' }]
+            include: [{ model: Vehicule, as: 'Vehicule' }]
         });
 
         if (!assignation) {
-            return res.status(403).json({ 
-                message: 'Vous n\'avez pas accès à ce véhicule' 
+            return res.status(403).json({
+                message: 'Vous n\'avez pas accès à ce véhicule'
             });
         }
 
-        // Mettre à jour le statut GPS
-        await assignation.vehicule.update({ statut_gps });
+        const vehicule = assignation.Vehicule;
 
-        console.log(`[Vehicules Chauffeur] GPS ${statut_gps ? 'activé' : 'désactivé'} pour véhicule ${vehiculeId} par chauffeur ${chauffeurId}`);
+        if (!vehicule) {
+            return res.status(404).json({ message: 'Véhicule introuvable' });
+        }
+
+        const nouveauStatut = !vehicule.statut_gps;
+
+        // Mettre à jour dans la base
+        await vehicule.update({ statut_gps: nouveauStatut });
+
+        console.log(`[Vehicules Chauffeur] GPS ${nouveauStatut ? 'activé' : 'désactivé'} pour véhicule ${vehiculeId} (chauffeur ${chauffeurId})`);
 
         return res.status(200).json({
-            message: `GPS ${statut_gps ? 'activé' : 'désactivé'} avec succès`,
+            message: `GPS ${nouveauStatut ? 'activé' : 'désactivé'} avec succès`,
             vehicule: {
-                id: assignation.vehicule.id,
-                immatriculation: assignation.vehicule.immatriculation,
-                statut_gps: statut_gps
+                id: vehicule.id,
+                immatriculation: vehicule.immatriculation,
+                statut_gps: nouveauStatut
             }
         });
 
@@ -163,6 +167,7 @@ async function updateStatutGPS(req, res) {
         });
     }
 }
+
 
 // Obtenir les trajets du jour pour un véhicule
 async function getTrajetsJour(req, res) {

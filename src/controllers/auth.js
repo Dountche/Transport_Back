@@ -14,13 +14,13 @@ const requestEmailVerification = async (req, res) => {
         role: Joi.string().valid('client', 'chauffeur', 'admin').default('client') // rôle avec défaut client
     });
 
-    const { error } = schema.validate(req.body);
+    const { error, value } = schema.validate(req.body);
     if (error) {
         return res.status(400).json({ message: error.details[0].message });
     }
 
     try {
-        const { nom, email, telephone, mot_de_passe, role } = req.body;
+        const { nom, email, telephone, mot_de_passe, role } = value;
 
         // Vérifier si l'email existe déjà
         const userExists = await Utilisateur.findOne({ where: { email } });

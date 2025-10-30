@@ -1,40 +1,59 @@
 # Transport API
 
-API pour système de transport avec gestion des tickets, paiements Wave, validation QR codes et suivi GPS temps réel.
+API complète pour système de transport urbain avec gestion des tickets, paiements Wave, validation QR codes, suivi GPS temps réel, réservations et notifications.
 
 ## Fonctionnalités
 
-### Authentification
-- Inscription avec vérification email (code à 6 chiffres)
-- Connexion JWT sécurisée
-- Récupération de mot de passe par email
-- Rate limiting anti-bruteforce
+### 🔐 Authentification & Profil
+- **Inscription** avec vérification email (code à 6 chiffres)
+- **Connexion** JWT sécurisée avec rôles (client, chauffeur, admin)
+- **Récupération** de mot de passe par email avec tokens sécurisés
+- **Profil utilisateur** : consultation, modification, suppression
+- **Rate limiting** anti-bruteforce (5 tentatives/5min)
 
-### Gestion des tickets
-- Création de tickets avec QR codes chiffrés (AES-256)
-- Expiration automatique (15 minutes)
-- Validation atomique via Redis
-- Visualisation QR (PNG)
-- Job de nettoyage automatique
+### 🎫 Gestion des tickets
+- **Création** de tickets avec QR codes chiffrés (AES-256-GCM)
+- **Expiration automatique** (15 minutes) avec job cron
+- **Validation atomique** via Redis avec scripts Lua
+- **Visualisation QR** (PNG base64)
+- **Paiement espèces** par les chauffeurs
+- **Historique** des tickets par utilisateur
 
-### Paiements Wave
-- Intégration Wave API (payouts)
-- Validation automatique des tickets après paiement
-- Webhook sécurisé avec vérification HMAC
-- Gestion d'idempotence
-- Support multi-devises (XOF, EUR, USD)
+### 💳 Paiements & Transactions
+- **Intégration Wave API** (payouts) avec webhook sécurisé
+- **Paiements espèces** confirmés par chauffeurs
+- **Validation automatique** des tickets après paiement
+- **Webhook sécurisé** avec vérification HMAC SHA256
+- **Gestion d'idempotence** pour éviter les doublons
+- **Support multi-devises** (XOF, EUR, USD)
+- **Historique** des paiements par utilisateur
 
-### Suivi GPS
-- Position temps réel des véhicules
-- WebSockets pour mises à jour live
-- Historique des trajets
-- Géolocalisation des arrêts
+### 🚌 Transport & Trajets
+- **Gestion des lignes** avec arrêts (JSONB)
+- **Trajets** avec horaires de départ/arrivée
+- **Véhicules** avec statut GPS et immatriculation
+- **Assignation chauffeur-véhicule** avec dates
+- **Réservations** avec statuts (en_attente, acceptée, en_cours, terminée)
 
-### Temps réel
-- WebSockets pour notifications
-- Events : création tickets, paiements, GPS
-- Souscription par utilisateur
-- Dashboard temps réel
+### 📍 Suivi GPS & Géolocalisation
+- **Position temps réel** des véhicules
+- **Historique des trajets** avec filtres temporels
+- **Dernière position** d'un véhicule
+- **Route complète** d'un véhicule
+- **WebSockets** pour mises à jour live
+
+### 🔔 Notifications & Temps réel
+- **Système de notifications** complet
+- **WebSockets** pour événements temps réel
+- **Events** : création tickets, paiements, GPS, réservations
+- **Dashboard temps réel** pour chauffeurs et admins
+- **Compteur** de notifications non lues
+
+### 📊 Dashboard & Analytics
+- **Dashboard chauffeur** : tickets validés, revenus, trajets
+- **Dashboard admin** : statistiques globales, KPIs
+- **Statistiques** par trajet, revenus, activités
+- **Données temps réel** via WebSockets
 
 ## Technologies
 
@@ -112,14 +131,56 @@ npm start
 2. Obtenir la clé API dans le dashboard
 3. Configurer le webhook : `https://domainename.com/api/paiements/webhook/wave`
 
-## Points d’entrée principaux :
--POST /api/auth/register/requestVerification → Demander code d’inscription
--POST /api/auth/login → Connexion
--POST /api/tickets/create → Créer un ticket
--POST /api/paiements → Effectuer un paiement via Wave
--POST /api/positions → Envoyer position GPS
--GET /api/dashboard → Statistiques en temps réel
--GET /api/profil/me → Consulter son profil
+## Points d'entrée principaux
+
+### 🔐 Authentification
+- `POST /api/auth/register/requestVerification` → Demander code d'inscription
+- `POST /api/auth/register/verify` → Vérifier code et créer compte
+- `POST /api/auth/login` → Connexion
+- `POST /api/auth/password/forgot` → Demander reset mot de passe
+- `GET /api/auth/password/verify/:token` → Vérifier token reset
+- `POST /api/auth/password/reset` → Réinitialiser mot de passe
+
+### 👤 Profil utilisateur
+- `GET /api/users/me` → Consulter son profil
+- `PUT /api/users/me` → Modifier son profil
+- `DELETE /api/users/me` → Supprimer son compte
+
+### 🎫 Tickets
+- `POST /api/tickets/create` → Créer un ticket
+- `GET /api/tickets` → Mes tickets
+- `GET /api/tickets/:id` → QR code (PNG)
+- `POST /api/tickets/validate` → Valider un ticket (chauffeur)
+- `POST /api/tickets/:id/confirm-cash` → Confirmer paiement espèces
+
+### 💳 Paiements
+- `POST /api/paiements` → Paiement Wave
+- `POST /api/paiements/especes` → Paiement espèces (chauffeur)
+- `GET /api/paiements/user/:userId` → Historique paiements
+- `GET /api/paiements/user/:userId/last` → Dernier paiement
+- `POST /api/paiements/webhook/wave` → Webhook Wave
+
+### 🚌 Transport
+- `GET /api/lignes` → Liste des lignes
+- `GET /api/trajets` → Liste des trajets
+- `GET /api/vehicules` → Liste des véhicules
+- `GET /api/reservations/mes-reservations` → Mes réservations
+- `POST /api/reservations` → Créer une réservation
+
+### 📍 GPS & Positions
+- `POST /api/positions` → Envoyer position GPS
+- `GET /api/positions/last/:vehiculeId` → Dernière position
+- `GET /api/positions/route/:vehiculeId` → Route complète
+
+### 🔔 Notifications
+- `GET /api/notifications` → Mes notifications
+- `POST /api/notifications/read` → Marquer comme lu
+- `GET /api/notifications/count` → Compteur non lues
+
+### 📊 Dashboard
+- `GET /api/dashboard/chauffeur` → Dashboard chauffeur
+- `GET /api/dashboard/admin` → Dashboard admin
+- `GET /api/dashboard/realtime` → Données temps réel
 
 ## Usage
 
@@ -128,9 +189,9 @@ npm start
 # 1. Demander la vérification
 POST /api/auth/register/requestVerification
 {
-  "nom": "John Doe",
+  "nom": "Diallo Franck",
   "email": "john@example.com",
-  "telephone": "0123456789",
+  "telephone": "0102030405",
   "mot_de_passe": "motdepasse123"
 }
 

@@ -217,6 +217,7 @@ async function createPaiementEspeces(req, res) {
 
   const { error, value } = schema.validate(req.body);
   if (error) {
+    console.log("erreur ", error)
     return res.status(400).json({ 
       message: 'Données invalides', 
       detail: error.details[0].message 
@@ -225,21 +226,150 @@ async function createPaiementEspeces(req, res) {
 
   try {
     const { ticket_id, montant } = value;
-    const chauffeurId = req.Utilisateur?.id;
+    const utilisateur_id = req.Utilisateur?.id;
 
-    if (!chauffeurId) {
-      return res.status(401).json({ message: 'Chauffeur non authentifié' });
+    if (!utilisateur_id) {
+      return res.status(401).json({ message: 'Utilisateur non authentifié' });
     }
 
-    // Vérifier que l'utilisateur est bien un chauffeur
-    const chauffeur = await Utilisateur.findByPk(chauffeurId, {
-      include: [{ model: require('../models').Role, as: 'role' }]
+    console.log(`[Paiement Espèces] Client ${utilisateur_id} souhaite payer le ticket ${ticket_id} en espèces`);
+
+    // Vérifier le ticket
+    const ticket = await Ticket.findByPk(ticket_id, {
+      include: [
+        { model: Utilisateur, as: 'client' },
+        { model: Trajet, include: ['ligne', 'vehicule'] }
+      ]
     });
 
-    if (!chauffeur || chauffeur.role?.nom !== 'chauffeur') {
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket introuvable' });
+    }
+
+    // Vérifier que le ticket appartient bien à l'utilisateur
+    if (ticket.utilisateur_id !== utilisateur_id) {
       return res.status(403).json({ 
-        message: 'Seuls les chauffeurs peuvent créer des paiements espèces' 
+        message: 'Ce ticket ne vous appartient pas' 
       });
+    }
+
+    if (ticket.statut_payer) {
+      return res.status(400).json({ 
+        message: 'Ce ticket a déjà été payé' 
+      });
+    }
+
+    if (new Date() > new Date(ticket.date_expiration)) {
+      return res.status(400).json({ 
+        message: 'Ce ticket a expiré',
+        date_expiration: ticket.date_expiration
+      });
+    }
+
+    const transaction_id = `cash_${ticket_id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Créer le paiement en espèces
+    const paiement = await Paiement.create({
+      montant,
+      date: new Date(),
+      methode: 'ESPECES',
+      transaction_id,
+      ticket_id,
+      utilisateur_id,
+    });
+
+    console.log(`[Paiement Espèces] Paiement créé - ID: ${paiement.id}, Transaction: ${transaction_id}`);
+
+    // Notification pour l'utilisateur
+    await createNotification(
+      utilisateur_id,
+      'paiement',
+      'Paiement en espèces enregistré',
+      `Votre paiement en espèces de ${montant} FCFA a été enregistré. Présentez votre ticket au chauffeur qui confirmera le paiement.`,
+      { ticket_id, montant, paiement_id: paiement.id }
+    );
+
+    // Trouver le chauffeur assigné au véhicule
+    const trajet = await Trajet.findByPk(ticket.trajet_id, {
+      include: ['vehicule']
+    });
+
+    if (trajet && trajet.vehicule_id) {
+      const chauffeurVehicule = await require('../models').ChauffeurVehicule.findOne({
+        where: { vehicule_id: trajet.vehicule_id, actif: true }
+      });
+
+      if (chauffeurVehicule) {
+        if (req.io) {
+          req.io.to(`user_${chauffeurVehicule.chauffeur_id}`).emit('paiementEspecesDeclaré', {
+            ticket_id: ticket.id,
+            client_id: utilisateur_id,
+            client_nom: ticket.client?.nom,
+            montant,
+            reservation_id,
+            timestamp: new Date()
+          });
+        }
+
+        // Notification pour le chauffeur
+        await createNotification(
+          chauffeurVehicule.chauffeur_id,
+          'paiement_especes',
+          'Paiement en espèces à confirmer',
+          `Le client ${ticket.client?.nom} (Ticket #${ticket_id}) souhaite payer ${montant} FCFA en espèces. Scannez son QR code pour confirmer.`,
+          { ticket_id, client_id: utilisateur_id, montant }
+        );
+      }
+    }
+
+    // Notification Dashboard Admin
+    if (req.io) {
+      emitDashboardUpdate(req.io, { 
+        type: 'paiementEspecesDeclare', 
+        paiementId: paiement.id, 
+        ticketId: ticket.id, 
+        montant,
+        userId: utilisateur_id,
+        methode: 'ESPECES',
+        timestamp: new Date() 
+      });
+    }
+
+    return res.status(201).json({
+      message: 'Paiement en espèces enregistré avec succès',
+      paiement: {
+        id: paiement.id,
+        montant: paiement.montant,
+        methode: 'ESPECES',
+        date: paiement.date,
+        statut: 'EN_ATTENTE'
+      },
+      ticket: {
+        id: ticket.id,
+        statut_payer: false,
+        statut_validation: false,
+        date_expiration: ticket.date_expiration
+      },
+      instructions: "Présentez votre QR Code au chauffeur qui confirmera le paiement en espèces lors de la validation."
+    });
+
+  } catch (error) {
+    console.error('[Paiement Espèces] Erreur:', error);
+    return res.status(500).json({
+      message: 'Erreur lors de l\'enregistrement du paiement espèces',
+      detail: error.message
+    });
+  }
+}
+
+/// confirmer un paiement espece (par le chauffeur)
+async function confirmerPaiementEspeces(req, res) {
+  try {
+    const { ticket_id } = req.params;
+    const chauffeur_id = req.Utilisateur?.id;
+
+    if (!chauffeur_id) {
+      return res.status(401).json({ message: 'Chauffeur non authentifié' });
     }
 
     const ticket = await Ticket.findByPk(ticket_id, {
@@ -250,64 +380,50 @@ async function createPaiementEspeces(req, res) {
       return res.status(404).json({ message: 'Ticket introuvable' });
     }
 
-    if (ticket.statut_payer) {
-      return res.status(400).json({ 
-        message: 'Ce ticket a déjà été payé électroniquement' 
-      });
-    }
-
-    if (ticket.validateur_id !== chauffeurId) {
-      return res.status(403).json({ 
-        message: 'Vous ne pouvez créer un paiement que pour les tickets que vous avez validés' 
-      });
-    }
-
-    // Créer le paiement espèces
-    const paiement = await Paiement.create({
-      montant,
-      date: new Date(),
-      methode: 'ESPECE',
-      transaction_id: `cash_${ticket_id}_${Date.now()}`,
-      ticket_id,
-      utilisateur_id: ticket.utilisateur_id,
+    // Trouver le paiement espèces en attente
+    const paiement = await Paiement.findOne({
+      where: { 
+        ticket_id,
+        methode: 'ESPECES'
+      }
     });
+
+    if (!paiement) {
+      return res.status(404).json({ 
+        message: 'Aucun paiement espèces trouvé pour ce ticket' 
+      });
+    }
 
     // Marquer le ticket comme payé
     await ticket.update({ statut_payer: true });
 
-    // Notification
+    console.log(`[Paiement Espèces] Confirmé - Ticket ${ticket_id}, Chauffeur ${chauffeur_id}`);
+
+    // Notification client
     if (ticket.utilisateur_id) {
       await createNotification(
         ticket.utilisateur_id,
         'paiement',
         'Paiement espèces confirmé',
-        `Votre paiement en espèces de ${montant} XOF a été confirmé par le chauffeur.`,
-        { ticket_id, montant, paiement_id: paiement.id }
+        `Votre paiement en espèces de ${paiement.montant} FCFA a été confirmé par le chauffeur.`,
+        { ticket_id, montant: paiement.montant, paiement_id: paiement.id }
       );
     }
 
-    console.log(`[Paiement] Paiement espèces créé - Ticket ${ticket_id}, Montant: ${montant}, Chauffeur: ${chauffeurId}`);
-
-    return res.status(201).json({
-      message: 'Paiement en espèces enregistré avec succès',
+    return res.status(200).json({
+      message: 'Paiement espèces confirmé',
       paiement: {
         id: paiement.id,
         montant: paiement.montant,
-        methode: 'ESPECE',
-        date: paiement.date,
-        valide_par: chauffeurId
-      },
-      ticket: {
-        id: ticket.id,
-        statut_payer: true,
-        client: ticket.client?.nom
+        statut: 'CONFIRME',
+        confirme_par: chauffeur_id
       }
     });
 
   } catch (error) {
-    console.error('[Paiement] Erreur paiement espèces:', error);
+    console.error('[Paiement Espèces] Erreur confirmation:', error);
     return res.status(500).json({
-      message: 'Erreur lors de l\'enregistrement du paiement espèces',
+      message: 'Erreur lors de la confirmation du paiement',
       detail: error.message
     });
   }
@@ -441,6 +557,7 @@ async function waveWebhookHandler(req, res) {
 module.exports = { 
   createPaiement, 
   createPaiementEspeces,
+  confirmerPaiementEspeces,
   listPaiements, 
   listUserPaiements, 
   lastPaymentForUser, 

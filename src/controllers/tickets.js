@@ -1,4 +1,4 @@
-const { Ticket, Utilisateur, Role } = require('../models');
+const { Ticket, Utilisateur, Role, Paiement } = require('../models');
 const { generateQRForTicket, validateQRToken } = require('../services/qrService');
 const { emitTicketCreated, emitTicketValidated } = require('../websockets/ticketWebsocket');
 const { emitDashboardUpdate } = require('../websockets/dashboardWebsockets');
@@ -393,7 +393,7 @@ async function getTicketsValidatedByDriver(req, res) {
 
         if (!chauffeur || chauffeur.role?.nom !== 'chauffeur') {
             return res.status(403).json({ 
-                message: 'Accès réservé aux chauffeurs' 
+                message: 'Accès réservé aux  v',  data : chauffeur.role?.nom
             });
         }
 
@@ -434,6 +434,18 @@ async function getTicketsValidatedByDriver(req, res) {
     }
 }
 
+async function getTicketById(req, res) {
+  try {
+    const ticket = await Ticket.findByPk(req.params.id, {
+        include: [{ model: Paiement, as: 'Paiement' }]
+    });
+    if (!ticket) return res.status(404).json({ message: "Ticket non trouvé" });
+    return res.json({message: "reponse du Ticket recherché", ticket});
+  } catch (err) {
+    return res.status(500).json({ message: "Erreur serveur", detail: err.message });
+  }
+}
+
 // Afficher le PNG d'un ticket
 async function getTicketQR(req, res) {
     try {
@@ -462,7 +474,7 @@ async function getTicketQR(req, res) {
 
         // Vérifier si le ticket est encore valide pour affichage
         const now = new Date();
-        if (ticket.statut_validation || new Date(ticket.date_expiration) < now) {
+        if (ticket.statut_validation && new Date(ticket.date_expiration) < now) {
             return res.status(400).json({ 
                 message: 'Ce ticket ne peut plus être affiché (validé ou expiré)' 
             });
@@ -747,6 +759,7 @@ module.exports = {
     validateTicket, 
     confirmCashPayment,
     getUserTickets,
+    getTicketById,
     getTicketsValidatedByDriver,
     getTicketQR,
     getTicketQRPage

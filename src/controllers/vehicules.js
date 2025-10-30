@@ -13,7 +13,7 @@ async function createVehicule(req, res) {
 
   try {
     const vehicule = await Vehicule.create(value);
-    return res.status(201).json({ message: "Véhicule créé avec succès", vehicule });
+    return res.status(201).json({ message: "Véhicule créé avec succès", data :  vehicule });
   } catch (err) {
     console.error("createVehicule error:", err);
     return res.status(500).json({ message: "Erreur serveur", detail: err.message });
@@ -65,7 +65,7 @@ async function getVehiculeById(req, res) {
   try {
     const vehicule = await Vehicule.findByPk(req.params.id);
     if (!vehicule) return res.status(404).json({ message: "Véhicule non trouvé" });
-    return res.json({message : "Voici le vehicule que vous avez recherché",vehicule});
+    return res.json({message : "Voici le vehicule que vous avez recherché", vehicule});
   } catch (err) {
     return res.status(500).json({ message: "Erreur serveur", detail: err.message });
   }

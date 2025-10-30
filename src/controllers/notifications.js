@@ -1,4 +1,4 @@
-const { redisClient, ensureRedisConnection } = require('../config/redis');
+const { redisClient, ValidatedRedistConnection } = require('../config/redis');
 
 // Récupérer la liste des notifications pour un utilisateur
 async function getNotifications(req, res) {
@@ -9,7 +9,7 @@ async function getNotifications(req, res) {
             return res.status(401).json({ message: 'Utilisateur non authentifié' });
         }
 
-        await ensureRedisConnection();
+        await ValidatedRedistConnection();
 
         // Récupérer les notifications depuis Redis
         const notificationKey = `notifications:${userId}`;
@@ -58,7 +58,7 @@ async function markAsRead(req, res) {
             return res.status(400).json({ message: 'IDs de notifications requis' });
         }
 
-        await ensureRedisConnection();
+        await ValidatedRedistConnection();
 
         const notificationKey = `notifications:${userId}`;
         
@@ -109,7 +109,7 @@ async function markAsRead(req, res) {
 // Créer une nouvelle notification (fonction utilitaire)
 async function createNotification(userId, type, titre, message, data = null) {
     try {
-        await ensureRedisConnection();
+        await ValidatedRedistConnection();
 
         const notification = {
             id: `notif_${Date.now()}_${Math.random().toString(36).substring(2)}`,
@@ -152,7 +152,7 @@ async function clearAllNotifications(req, res) {
             return res.status(401).json({ message: 'Utilisateur non authentifié' });
         }
 
-        await ensureRedisConnection();
+        await ValidatedRedistConnection();
 
         const notificationKey = `notifications:${userId}`;
         const deleted = await redisClient.del(notificationKey);
@@ -182,7 +182,7 @@ async function getUnreadCount(req, res) {
             return res.status(401).json({ message: 'Utilisateur non authentifié' });
         }
 
-        await ensureRedisConnection();
+        await ValidatedRedistConnection();
 
         const notificationKey = `notifications:${userId}`;
         const notifications = await redisClient.lRange(notificationKey, 0, -1);

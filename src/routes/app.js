@@ -35,7 +35,7 @@ app.use('/api/profil', usersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reservations', reservationRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/vehicules', ChauffeurVehiculeRoutes);
+app.use('/api/chauffeurvehicule', ChauffeurVehiculeRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Bienvenue sur l'API Transport !!!!" });

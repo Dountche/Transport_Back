@@ -9,7 +9,8 @@ async function createReservation(req, res) {
         trajet_id: Joi.number().integer().positive().required(),
         vehicule_id: Joi.number().integer().positive().required(),
         arret_depart: Joi.string().min(2).max(200).required(),
-        arret_arrivee: Joi.string().min(2).max(200).required()
+        arret_arrivee: Joi.string().min(2).max(200).required(),
+        date_prise_en_charge: Joi.date().required()
     });
 
     const { error, value } = schema.validate(req.body);
@@ -21,7 +22,7 @@ async function createReservation(req, res) {
     }
 
     try {
-        const { trajet_id, vehicule_id, arret_depart, arret_arrivee } = value;
+        const { trajet_id, vehicule_id, arret_depart, arret_arrivee, date_prise_en_charge  } = value;
         const userId = req.Utilisateur?.id;
 
         if (!userId) {
@@ -42,8 +43,8 @@ async function createReservation(req, res) {
         // Vérifier que le trajet et le véhicule existent et sont cohérents
         const trajet = await Trajet.findByPk(trajet_id, {
             include: [
-                { model: Ligne, as: 'ligne' },
-                { model: Vehicule, as: 'vehicule' }
+                { model: Ligne, as: 'Ligne' },
+                { model: Vehicule, as: 'Vehicule' }
             ]
         });
 
@@ -80,7 +81,8 @@ async function createReservation(req, res) {
             arret_depart,
             arret_arrivee,
             statut: 'en_attente',
-            date_reservation: new Date()
+            date_reservation: new Date(),
+            date_prise_en_charge  : date_prise_en_charge 
         });
 
         // Créer automatiquement le ticket associé
@@ -195,7 +197,7 @@ async function getReservationsChauffeur(req, res) {
         // Récupérer les véhicules assignés au chauffeur
         const chauffeurVehicules = await ChauffeurVehicule.findAll({
             where: { chauffeur_id: chauffeurId, actif: true },
-            include: [{ model: Vehicule, as: 'vehicule' }]
+            include: [{ model: Vehicule, as: 'Vehicule' }]
         });
 
         if (chauffeurVehicules.length === 0) {
@@ -223,7 +225,7 @@ async function getReservationsChauffeur(req, res) {
                     model: Trajet, 
                     as: 'trajet',
                     include: [
-                        { model: Ligne, as: 'ligne', attributes: ['nom'] }
+                        { model: Ligne, as: 'Ligne', attributes: ['nom'] }
                     ]
                 },
                 { 
@@ -300,7 +302,7 @@ async function updateReservationStatus(req, res) {
         const reservation = await Reservation.findByPk(id, {
             include: [
                 { model: Utilisateur, as: 'client' },
-                { model: Vehicule, as: 'vehicule' },
+                { model: Vehicule, as: 'Vehicule' },
                 { model: Ticket, as: 'ticket' }
             ]
         });
@@ -388,8 +390,8 @@ async function getClientReservations(req, res) {
                     model: Trajet, 
                     as: 'trajet',
                     include: [
-                        { model: Ligne, as: 'ligne' },
-                        { model: Vehicule, as: 'vehicule' }
+                        { model: Ligne, as: 'Ligne' },
+                        { model: Vehicule, as: 'Vehicule' }
                     ]
                 },
                 {
