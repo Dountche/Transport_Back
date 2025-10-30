@@ -85,13 +85,13 @@ startTicketsCleanup(io);
 // === Démarrage serveur ===
 (async () => {
   try {
-    console.log('📡 Connexion Redis...');
+    console.log('Connexion Redis...');
     await ValidatedRedistConnection();
-    console.log('✅ Redis connecté');
+    console.log('Redis connecté');
 
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Serveur lancé sur http://localhost:${PORT}`);
-      console.log(`🔧 Environnement: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Serveur lancé sur http://localhost:${PORT}`);
+      console.log(`Environnement: ${process.env.NODE_ENV || 'development'}`);
     });
 
     process.on('SIGINT', async () => {
