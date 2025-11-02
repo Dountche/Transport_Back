@@ -4,17 +4,21 @@ const { requestEmailVerification, verifyAndRegister, login, requestPasswordReset
 
 const rateLimit = require("express-rate-limit");
 
-// Rate limiters
+// === Rate limiters ===
 const authLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 5,
-    message: "Trop de tentatives, veuillez réessayer plus tard"
+  windowMs: 5 * 60 * 1000, // 5 min
+  limit: 5,                // max 5 requêtes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Trop de tentatives, veuillez réessayer plus tard"
 });
 
 const emailLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000,
-    max: 2,
-    message: "Trop d'emails envoyés, attendez avant de réessayer"
+  windowMs: 3 * 60 * 1000,
+  limit: 2,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Trop d'emails envoyés, attendez avant de réessayer"
 });
 
 // === INSCRIPTION ===
