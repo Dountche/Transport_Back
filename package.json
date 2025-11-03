@@ -18,6 +18,7 @@
     "db:seed:undo": "npx sequelize-cli db:seed:undo:all"
   },
   "dependencies": {
+    "@sendinblue/client": "^3.3.1",
     "axios": "^1.11.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
